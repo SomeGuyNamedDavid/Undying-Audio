@@ -1,46 +1,97 @@
 ; Functions
-Init() {
+; GOn(val)
+; {
+;     global
+;     if timeDisp.Value != val {
+;         timeDisp.Value := val
+;         gDisp.BackColor := (st := !st) ? "FFFF00" : "FFAA00"
+;     }
+;     if gShow
+;         return 1
+;     gDisp.Show("NoActivate")
+;     gShow := true
+;     SoundBeep
+;     return 0
+; }
+
+; GOff()
+; {
+;     global
+;     if not gShow
+;         return 1
+;     gDisp.Hide()
+;     gShow := false
+;     return 0
+; }
+
+OPing(val) ; Sound test
+{
     global
-    tmp    := [A_Now, ""]
-    tmp[2] := FormatTime(tmp[1], "hh:mm:ss")
-    loop cnt {
-        tStamp[A_Index] := tmp[1]
-        fTime[A_Index]  := tmp[2]
+    SoundBeep
+    loop 32 { ; ~1 second
+        ComCall 3, aMeter[val], "float*", &peak:=0
+        if peak {
+            tStamp[val] := A_Now
+            Init()
+            return 0
+        }
+        Sleep 32
     }
+    LogReset(val) ; Reset on fail
+    return val
 }
 
-LInit() {
+^+!CtrlBreak:: ; Ctrl+Shift+Alt + Pause
+LogReset(val)
+{
     global
-    tMax := 0
-    Sleep 32 ; ~30 FPS
-    tNow := A_Now
-}
-
-BClick(N1, N2) {
-    global
-    gDisp.Hide()
-
-    tmp := ""
-    if not FileExist(logName) { ; If new file, add headers
-        tmp .= "Logdate,Logtime"
-        loop cnt
-            tmp .= "," deviceName[A_Index]
-    }
-
-    tmp .= FormatTime(tNow, "`nyy-MM-dd,HH:mm:ss") ; Log current time
-    loop cnt ; Log last sound time
-        tmp .= FormatTime(tStamp[A_Index], ",HH:mm:ss")
-
-    FileAppend tmp, logName
+    ; GOn((val ? tDiff[tIdle] : "ERR") "`nRST")
 
     for val in dInterface ; Restart all watched devices
-        RunWait('*RunAs ' A_ComSpec ' /c pnputil /restart-device "' val '"',
-            , 'Hide'
-    )
+        RunWait('*RunAs ' A_ComSpec ' /c pnputil /restart-device "' val '"',,'Hide')
+    
+    ; Log initializations
+    local iValid := IsNumber(val) and (0 < val) and (val <= cnt)
+    local tMin   := iValid ? tStamp[val] : A_Now
+
+    if not iValid {
+        local iCaller := val ? "Hotkey" : "Error"
+        loop cnt
+            tMin := (DateDiff(tMin, tStamp[A_Index], "s") < 0) ?
+                tMin : tStamp[A_Index] ; If no timeout, use earliest timestamp
+    }
+
+    FileAppend( ; If new file, add headers
+        (FileExist(logName) ? "" : "Date,Start,End,Device,Input")
+        . "`n"
+        . FormatTime(tNow, "yy-MM-dd,") ; Date
+        . FormatTime(tMin, "HH:mm:ss,") ; Start
+        . FormatTime((iValid && dInput[val]) ? tStamp[val] : tNow, "HH:mm:ss,") ; End
+        . (iCaller ?? deviceName[val]) "," ; Device
+        . (iValid ? (dinput[val] ? "TRUE":"FALSE") : "") ; Input     
+    , logName)
 
     Init()
-    LInit()
     return 0
+}
+
+Init()
+{
+    global tStamp
+    iNow := LInit()
+    for val in tStamp {
+        tStamp[A_Index] := iNow
+    }
+
+    ; GOff()
+    return 0
+}
+
+LInit()
+{
+    Sleep 32 ; ~30 FPS
+    global tNow := A_Now
+    return tNow
 }
 
 ; Confirm admin elevation
@@ -53,84 +104,55 @@ if not A_IsAdmin {
 logName      := "AudioMeter.csv" ; Log name & save location
 A_WorkingDir := A_Desktop
 
-deviceName := ["Headset", "Headset:2"] ; Devices to monitor array
+deviceName := ["Headset", "Headset:2"] ; Devices to monitor
+dInput     := [   false ,       true ] ; true=input, false=output
+dTimeout   := [      90 ,          2 ] ; Timeout delay per device
 dInterface := ["BTHHFENUM\BthHFPAudio\8&1234dbd4&1&97"] ; Interfaces to restart
-audioMeter := Array()
-cnt := audioMeter.Length := deviceName.Length
+cnt := deviceName.Length
+
+; Initializations
+aMeter := Array(), aMeter.Length := cnt
+tStamp := Array(), tStamp.Length := cnt
+; st := false
 
 ; IAudioMeterInformation
 for val in deviceName {
-    audioMeter[A_Index] := SoundGetInterface(
+    aMeter[A_Index] := SoundGetInterface(
         "{C02216F6-8C67-4B5B-9D00-D008E73E0064}", , val
     )
-    if not audioMeter[A_Index] {
+    if not aMeter[A_Index] {
         MsgBox '"' val '" not found or supported.'
         ExitApp 1
     }
 }
 
 ; Message box setup
-gDisp := Gui("AlwaysOnTop -Caption -DPIScale ToolWindow")
-gDisp.BackColor := "FF9900"
-gShow := false
+; gDisp := Gui("AlwaysOnTop -Caption -DPIScale ToolWindow")
 
-tmp := "" ; Default text
-loop cnt
-    tmp .= " __:__:__"
-timeDisp := gDisp.AddText("w87 -Wrap", SubStr(tmp, 2) "`n__:__:__")
+; tmp := "" ; Placeholder text for autosize
+; loop cnt
+;     tmp .= "000`n"
+; timeDisp := gDisp.AddText("Right", SubStr(tmp, 1, -1))
 
-tmp := gDisp.AddButton("WP", "Flash")
-tmp.OnEvent("Click", BClick)
+; gDisp.Show("AutoSize xCenter y0 Hide")
+; gShow := true
 
-gDisp.Show("AutoSize xCenter y0 Hide")
-
-; Initializations
-peak := Array(), tStamp := Array(), fTime := Array(), tDiff := Array()
-peak.Length :=   tStamp.Length :=   fTime.Length :=   tDiff.Length :=  cnt
 Init()
 
-; Main (breakout on error)
-try loop
-{
-    LInit()
-    for val in audioMeter
+loop {
+    try loop ; Inner loop resets on error
     {
-        ; audioMeter->GetPeakValue(&peak)
-        ComCall 3, val, "float*", &tmp:=0
-        peak[A_Index] := tmp
+        loop cnt { ; Write peak value to address
+            ComCall 3, aMeter[A_Index], "float*", &peak:=0
 
-        if peak[A_Index] { ; If sound, update last time
-            if tStamp[A_Index] != tNow
-                fTime[A_Index] := FormatTime(tNow, "hh:mm:ss")
-            tStamp[A_Index] := tNow
-            tDiff[A_Index]  := 0
+            if peak ; If sound, update last time, else check for timeout
+                tStamp[A_Index] := A_Now
+            else if (DateDiff(tNow, tStamp[A_Index], "s") >= dTimeout[A_Index])
+                dInput[A_Index] ? LogReset(A_Index) : OPing(A_Index)
         }
-        else { ; Else, update time since sound
-            tDiff[A_Index] := DateDiff(tNow, tStamp[A_Index], "s")
-            tMax := Max(tMax, tDiff[A_Index])
-        }
+        LInit()
     }
-
-    ; If any idle devices, show warnbox
-    if tMax >= 2 {
-        tmp := ""
-        for val in tDiff
-            tmp .= " " (val >= 2 ? fTime[A_Index] : "__:__:__")
-        tmp := SubStr(tmp, 2) FormatTime(tNow, "`nhh:mm:ss")
-        if (timeDisp.Value != tmp)
-            timeDisp.Value := tmp
-
-        if not gShow {
-            gDisp.Show("NoActivate")
-            gShow := true
-        }
-    }
-    else if gShow {
-        gDisp.Hide()
-        gShow := false
+    catch { 
+        LogReset(false)
     }
 }
-
-for val in audioMeter
-    ObjRelease val
-ExitApp
