@@ -1,29 +1,4 @@
 ; Functions
-; GOn(val)
-; {
-;     global
-;     if timeDisp.Value != val {
-;         timeDisp.Value := val
-;         gDisp.BackColor := (st := !st) ? "FFFF00" : "FFAA00"
-;     }
-;     if gShow
-;         return 1
-;     gDisp.Show("NoActivate")
-;     gShow := true
-;     SoundBeep
-;     return 0
-; }
-
-; GOff()
-; {
-;     global
-;     if not gShow
-;         return 1
-;     gDisp.Hide()
-;     gShow := false
-;     return 0
-; }
-
 OPing(val) ; Sound test
 {
     global
@@ -45,8 +20,6 @@ OPing(val) ; Sound test
 LogReset(val)
 {
     global
-    ; GOn((val ? tDiff[tIdle] : "ERR") "`nRST")
-
     for val in dInterface ; Restart all watched devices
         RunWait('*RunAs ' A_ComSpec ' /c pnputil /restart-device "' val '"',,'Hide')
     
@@ -79,11 +52,8 @@ Init()
 {
     global tStamp
     iNow := LInit()
-    for val in tStamp {
+    for val in tStamp
         tStamp[A_Index] := iNow
-    }
-
-    ; GOff()
     return 0
 }
 
@@ -113,7 +83,6 @@ cnt := deviceName.Length
 ; Initializations
 aMeter := Array(), aMeter.Length := cnt
 tStamp := Array(), tStamp.Length := cnt
-; st := false
 
 ; IAudioMeterInformation
 for val in deviceName {
@@ -126,19 +95,7 @@ for val in deviceName {
     }
 }
 
-; Message box setup
-; gDisp := Gui("AlwaysOnTop -Caption -DPIScale ToolWindow")
-
-; tmp := "" ; Placeholder text for autosize
-; loop cnt
-;     tmp .= "000`n"
-; timeDisp := gDisp.AddText("Right", SubStr(tmp, 1, -1))
-
-; gDisp.Show("AutoSize xCenter y0 Hide")
-; gShow := true
-
 Init()
-
 loop {
     try loop ; Inner loop resets on error
     {
